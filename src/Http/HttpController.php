@@ -1,8 +1,9 @@
 <?php
 
-namespace Vest\Auth;
+namespace Vest\Http;
 
 use Exception;
+use Vest\Auth\Session;
 use Vest\Http\Request;
 use Vest\Http\Response;
 use Vest\Support\ViewFactory;
