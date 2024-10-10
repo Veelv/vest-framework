@@ -2,14 +2,11 @@
 
 namespace Vest\Support;
 
+use Exception;
+
 class ViewFactory
 {
-    protected string $basePath;
-
-    public function __construct(string $basePath)
-    {
-        $this->basePath = rtrim($basePath, '/');
-    }
+    protected string $baseNamespace = 'App\Views'; // Definindo o namespace base para as views
 
     /**
      * Renderiza uma view com dados.
@@ -29,10 +26,16 @@ class ViewFactory
      * @param string $view Nome da view
      * @param array $data Dados para a view
      * @return string
+     * @throws Exception
      */
     protected function render(string $view, array $data): string
     {
         $viewPath = $this->getViewPath($view);
+
+        // Verifica se a view existe
+        if (!file_exists($viewPath)) {
+            throw new Exception("View [$viewPath] not found.");
+        }
 
         // Extrai os dados para variáveis
         extract($data);
@@ -50,6 +53,6 @@ class ViewFactory
      */
     protected function getViewPath(string $view): string
     {
-        return $this->basePath . '/' . str_replace('.', '/', $view) . '.blade.php';
+        return $this->baseNamespace . '/' . str_replace('.', '/', $view) . '.blade.php';
     }
 }
