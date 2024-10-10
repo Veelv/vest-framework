@@ -4,40 +4,52 @@ namespace Vest\Support;
 
 class ViewFactory
 {
-    protected $viewPaths = [];
+    protected string $basePath;
 
-    public function __construct(array $viewPaths = [])
+    public function __construct(string $basePath)
     {
-        $this->viewPaths = $viewPaths;
+        $this->basePath = rtrim($basePath, '/');
     }
 
-    public function addPath($path)
+    /**
+     * Renderiza uma view com dados.
+     *
+     * @param string $view Nome da view
+     * @param array $data Dados para a view
+     * @return string Conteúdo renderizado
+     */
+    public function make(string $view, array $data = []): string
     {
-        $this->viewPaths[] = rtrim($path, '/') . '/';
+        return $this->render($view, $data);
     }
 
-    public function render($view, $data = [])
+    /**
+     * Renderiza uma view.
+     *
+     * @param string $view Nome da view
+     * @param array $data Dados para a view
+     * @return string
+     */
+    protected function render(string $view, array $data): string
     {
-        $viewFile = $this->findViewFile($view);
-        if ($viewFile === false) {
-            throw new \Exception("View [$view] not found.");
-        }
+        $viewPath = $this->getViewPath($view);
+
+        // Extrai os dados para variáveis
+        extract($data);
 
         ob_start();
-        extract($data);
-        include $viewFile;
+        include $viewPath;
         return ob_get_clean();
     }
 
-    protected function findViewFile($view)
+    /**
+     * Obtém o caminho da view.
+     *
+     * @param string $view Nome da view (ex: 'home.index')
+     * @return string Caminho completo para a view
+     */
+    protected function getViewPath(string $view): string
     {
-        foreach ($this->viewPaths as $path) {
-            $viewFile = $path . $view . '.php';
-            if (file_exists($viewFile)) {
-                return $viewFile;
-            }
-        }
-
-        return false;
+        return $this->basePath . '/' . str_replace('.', '/', $view) . '.blade.php';
     }
 }

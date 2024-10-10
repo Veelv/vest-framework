@@ -1,5 +1,5 @@
 <?php
-namespace Veelv;
+namespace Vest;
 
 class EnvLoader
 {
