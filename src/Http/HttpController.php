@@ -1,23 +1,17 @@
-<?php  
+<?php
 
-namespace Vest\Http;
+namespace Vest\Auth;
 
-use Vest\Http\Request;  
-use Vest\Http\Response;  
-use Vest\Auth\Session;  
+use Exception;
+use Vest\Http\Request;
+use Vest\Http\Response;
 use Vest\Support\ViewFactory;
 
-/**
- * Interface para controladores.
- */
 interface ControllerInterface  
 {  
-    public function handle(Request $request): Response;  
+    public function __call(string $name, array $arguments); // Adiciona método mágico
 }
 
-/**  
- * Classe base para controladores web.  
- */  
 abstract class HttpController implements ControllerInterface  
 { 
     protected Request $request;  
@@ -55,10 +49,18 @@ abstract class HttpController implements ControllerInterface
     }
 
     /**
-     * Método handle a ser implementado pelas classes filhas.
+     * Método mágico para chamar métodos não definidos.
      *
-     * @param Request $request
-     * @return Response
+     * @param string $name Nome do método chamado.
+     * @param array $arguments Argumentos passados para o método.
+     * @return mixed
      */
-    abstract public function handle(Request $request): Response; 
+    public function __call(string $name, array $arguments)
+    {
+        if (method_exists($this, $name)) {
+            return $this->$name(...$arguments);
+        }
+
+        throw new Exception("Método [$name] não encontrado no controlador.");
+    }
 }
