@@ -44,6 +44,6 @@
             "src/Exceptions/RouteException.php"
         ]
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "prefer-stable": true
 }
