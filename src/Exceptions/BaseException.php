@@ -8,7 +8,7 @@ abstract class BaseException extends Exception
 {
     protected string $errorCode; // Código de erro específico
 
-    public function __construct(string $message, string $errorCode = '', int $code = 0, Exception $previous = null)
+    public function __construct(string $message, string $errorCode = '', int $code = 0, ?Exception $previous = null)
     {
         parent::__construct($message, $code, $previous);
         $this->errorCode = $errorCode; // Armazena o código de erro
@@ -35,7 +35,7 @@ abstract class BaseException extends Exception
             "[%s]: %s (Code: %s)",
             get_class($this),
             $this->message,
-            $this->errorCode
+            $this->getErrorCode()
         );
     }
 }

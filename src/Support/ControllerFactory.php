@@ -12,7 +12,10 @@ class ControllerFactory
 
     public function make(string $controllerClass)
     {
-        $fullClass = $this->baseNamespace . '\\' . $controllerClass;
+        // Verifica se a classe já está com namespace completo
+        $fullClass = strpos($controllerClass, '\\') === false
+            ? $this->baseNamespace . '\\' . $controllerClass
+            : $controllerClass;
 
         if (!class_exists($fullClass)) {
             throw new Exception("Controller [$fullClass] not found.");

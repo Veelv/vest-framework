@@ -1,7 +1,8 @@
 <?php
-
 namespace Vest\Http;
 
+use Vest\Http\Response;
+use Vest\Http\Request;
 use Vest\Exceptions\HttpException;
 
 abstract class RestController
@@ -11,9 +12,8 @@ abstract class RestController
 
     public function __construct(Request $request, Response $response)
     {
-        $this->request = $request; // Armazena a instância de Request
-        $this->response = $response; // Armazena a instância de Response
-        $this->response->setHeader('Content-Type', 'application/json'); // Define o tipo de conteúdo padrão como JSON
+        $this->request = $request;
+        $this->response = $response;
     }
 
     /**
@@ -56,40 +56,65 @@ abstract class RestController
     }
 
     // Métodos padrão que podem ser implementados ou sobrescritos nas subclasses
-    protected function get(): Response
+    protected function index(): Response
     {
-        return $this->methodNotAllowed(); // Retorna 405 se o método GET não for implementado
+        // Implementação do método index
+        return $this->respondWithData(['message' => 'Index method']);
     }
 
-    protected function post(): Response
+    protected function create(): Response
     {
-        return $this->methodNotAllowed(); // Retorna 405 se o método POST não for implementado
+        // Implementação do método create
+        return $this->respondWithData(['message' => 'Create method']);
     }
 
-    protected function put(): Response
+    protected function store(): Response
     {
-        return $this->methodNotAllowed(); // Retorna 405 se o método PUT não for implementado
+        // Implementação do método store
+        return $this->respondWithData(['message' => 'Store method']);
     }
 
-    protected function delete(): Response
+    protected function show($id): Response
     {
-        return $this->methodNotAllowed(); // Retorna 405 se o método DELETE não for implementado
+        // Implementação do método show
+        return $this->respondWithData(['message' => 'Show method', 'id' => $id]);
     }
 
-    protected function validate(array $data, array $rules): void
+    protected function edit($id): Response
     {
-        // Implementar lógica de validação aqui
+        // Implementação do método edit
+        return $this->respondWithData(['message' => 'Edit method', 'id' => $id]);
+    }
+
+    protected function update($id): Response
+    {
+        // Implementação do método update
+        return $this->respondWithData(['message' => 'Update method', 'id' => $id]);
+    }
+
+    protected function destroy($id): Response
+    {
+        // Implementação do método destroy
+        return $this->respondWithData(['message' => 'Destroy method', 'id' => $id]);
     }
 
     protected function respondWithData(array $data, int $statusCode = 200): Response
     {
-        $this->response->setBody(json_encode($data)); // Define o corpo da resposta como JSON
-        return $this->response->setStatusCode($statusCode); // Define o código de status da resposta
+        return $this->response->setStatusCode($statusCode)->json($data); 
     }
 
-    protected function respondWithError(string $message, int $statusCode): Response
+    protected function respondWithError(array $data, string $message = null, int $statusCode): Response
     {
+        $this->response->json($data);
         $this->response->setBody(json_encode(['error' => $message])); // Define o corpo da resposta com erro
         return $this->response->setStatusCode($statusCode); // Define o código de status da resposta
     }
+
+    /**
+     * Valida os dados de entrada com as regras especificadas.
+     *
+     * @param array $rules Regras de validação.
+     * @param array|null $messages Mensagens personalizadas (opcional).
+     * @throws HttpException Se houver erros de validação.
+     */
 }

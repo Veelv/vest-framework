@@ -6,7 +6,7 @@ use Exception;
 
 class ViewFactory
 {
-    protected string $baseNamespace = 'App\Views'; // Definindo o namespace base para as views
+    protected string $baseNamespace = APP_PATH. 'app\Views'; // Definindo o namespace base para as views
 
     /**
      * Renderiza uma view com dados.
@@ -53,6 +53,6 @@ class ViewFactory
      */
     protected function getViewPath(string $view): string
     {
-        return $this->baseNamespace . '/' . str_replace('.', '/', $view) . '.blade.php';
+        return $this->baseNamespace . '/' . str_replace('.', '/', $view) . '.php';
     }
 }

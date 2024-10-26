@@ -128,13 +128,8 @@ class RouteRegistrar
      */
     public function group(array $attributes, callable $callback): void
     {
-        // Adiciona os atributos do grupo à pilha
         $this->groupStack[] = $attributes;
-
-        // Executa o callback com o registrador atual
         $callback($this);
-
-        // Remove os atributos do grupo da pilha
         array_pop($this->groupStack);
     }
 
@@ -148,16 +143,30 @@ class RouteRegistrar
      */
     protected function addRoute($methods, string $uri, $action): Route
     {
-        $methods = (array) $methods; // Garante que métodos sejam um array
+        $methods = (array) $methods;
+
+        // Aplicar o prefixo do grupo à URI
+        $uri = $this->getGroupPrefix() . '/' . trim($uri, '/');
+        $uri = '/' . trim($uri, '/'); // Normalizar URI
 
         $route = null;
-        // Registra a rota para cada método fornecido
         foreach ($methods as $method) {
-            $route = $this->router->add($method, $this->prefix($uri), $this->action($action));
-            $this->applyGroupAttributes($route); // Aplica atributos do grupo, se houver
+            $route = $this->router->add($method, $uri, $action);
+            $this->applyGroupAttributes($route);
         }
 
-        return $route; // Retorna a rota registrada
+        return $route;
+    }
+
+    protected function getGroupPrefix(): string
+    {
+        $prefix = '';
+        foreach ($this->groupStack as $group) {
+            if (isset($group['prefix'])) {
+                $prefix .= '/' . trim($group['prefix'], '/');
+            }
+        }
+        return trim($prefix, '/');
     }
 
     /**
@@ -168,8 +177,8 @@ class RouteRegistrar
      */
     protected function prefix(string $uri): string
     {
-        $prefix = $this->getGroupAttribute('prefix') ?? ''; // Obtém o prefixo do grupo
-        return $prefix . '/' . trim($uri, '/'); // Retorna o URI com o prefixo aplicado
+        // Remove barras duplicadas e retorna o URI com o prefixo
+        return trim($uri, '/');
     }
 
     /**

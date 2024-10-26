@@ -3,31 +3,41 @@
 namespace Vest\Exceptions;
 
 use Exception;
+use PDOException; // Adicione isso se não estiver presente
 
 class DatabaseQueryException extends BaseException
 {
     protected string $sql;
     protected array $bindings;
+    protected array $errorInfo;
 
-    public function __construct(string $sql, array $bindings = [], $message = "Erro na execução da consulta", $errorCode = 'DB_QUERY_ERR', int $code = 0, Exception $previous = null)
-    {
+    public function __construct(
+        string $sql,
+        array $bindings = [],
+        ?PDOException $previous = null
+    ) {
         $this->sql = $sql;
         $this->bindings = $bindings;
-        parent::__construct($message, $errorCode, $code, $previous);
-    }
 
-    public function getSql(): string
-    {
-        return $this->sql;
-    }
+        if ($previous) {
+            $this->errorInfo = $previous->errorInfo;
+            $message = sprintf(
+                "Erro ao executar a consulta: %s (Código de erro: %s, Tabela: %s, Coluna: %s, Valor: %s)",
+                $previous->getMessage(),
+                $this->errorInfo[0],
+                $this->errorInfo[2],
+                $this->errorInfo[1],
+                json_encode($this->bindings)
+            );
+        } else {
+            $message = "Erro na execução da consulta";
+        }
 
-    public function getBindings(): array
-    {
-        return $this->bindings;
+        parent::__construct($message, 'DB_QUERY_ERR', (int) ($previous ? $previous->getCode() : 0), $previous);
     }
 
     public function __toString(): string
     {
-        return parent::__toString() . sprintf(" (SQL: %s, Bindings: %s)", $this->sql, json_encode($this->bindings));
+        return $this->getMessage();
     }
 }

@@ -33,6 +33,11 @@ class Response
         503 => 'Service Unavailable',
     ];
 
+    public function __construct()
+    {
+        $this->body = '';
+    }
+
     /**
      * Define o código de status da resposta HTTP.
      *
@@ -40,11 +45,9 @@ class Response
      * @param string|null $text Texto opcional que descreve o status.
      * @return self
      */
-    public function setStatusCode(int $code, string $text = null): self
+    public function setStatusCode(int $statusCode): self
     {
-        $this->statusCode = $code;
-        // Se um texto não for fornecido, usa o texto padrão baseado no código
-        $this->body = $text ?? $this->statusTexts[$code] ?? 'Unknown status';
+        $this->statusCode = $statusCode;
         return $this;
     }
 
@@ -79,12 +82,11 @@ class Response
      * @param array $data Dados a serem codificados em JSON.
      * @param int $statusCode Código de status HTTP.
      */
-    public function json(array $data, int $statusCode = 200): void
+    public function json(array $data): self
     {
-        $this->setStatusCode($statusCode);
-        $this->setHeader('Content-Type', 'application/json');
-        $this->setBody(json_encode($data));
-        $this->send();
+        header('Content-Type: application/json', true, $this->statusCode);
+        echo json_encode($data);
+        return $this;
     }
 
     /**

@@ -40,8 +40,8 @@ class EnvLoader
      * @param string|null $default Valor padrão a ser retornado se a chave não existir
      * @return string|null O valor da variável ou o valor padrão especificado
      */
-    public static function getenv(string $key, ?string $default = null): ?string
+    public static function getenv(string $key): ?string
     {
-        return self::$data[$key] ?? $default;
+        return self::$data[$key];
     }
 }

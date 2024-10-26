@@ -4,8 +4,10 @@ namespace Vest\Routing;
 
 use Error;
 use Psr\Container\ContainerInterface;
+use Vest\Debug\Log;
 use Vest\Exceptions\MethodNotAllowedException;
 use Vest\Exceptions\RouteNotFoundException;
+use Vest\Support\ViewFactory;
 
 /**
  * Class Router
@@ -81,42 +83,80 @@ class Router
    * @throws MethodNotAllowedException If the method is not allowed for the URI.
    * 
    */
-  public function resolve(string $method, string $uri, ?string $domain = null): ?array
-  {
+  public function resolve(string $method, string $uri, ?string $domain = null): ?array {
+    // Remover barras duplas e trailing slash
+    $uri = '/' . trim($uri, '/');
+
     // Check if the route is cached
     if ($this->cache->has($method . $uri)) {
-      return $this->cache->get($method . $uri);
+        return $this->cache->get($method . $uri);
     }
 
-    // Try to match the route
-    $route = $this->routeCollection->match($method, $uri, $domain);
+    try {
+        // Try to match the route
+        $route = $this->routeCollection->match($method, $uri, $domain);
+        if (!$route) {
+            $allowedMethods = $this->routeCollection->getAllowedMethods($uri);
+            if (!empty($allowedMethods)) {
+                // Log the method not allowed exception
+                $logger = Log::getInstance();
+                $logger->error("Method not allowed for URI: $uri", [
+                    'method' => $method,
+                    'allowed_methods' => $allowedMethods,
+                ]);
+                // Return a friendly message
+                http_response_code(405); // Method Not Allowed
+                return ['error' => 'Method not allowed for this route.'];
+            }
 
-    if (!$route) {
-      $allowedMethods = $this->routeCollection->getAllowedMethods($uri);
-      if (!empty($allowedMethods)) {
-        throw new MethodNotAllowedException($allowedMethods, "Method not allowed.");
-      }
-      throw new RouteNotFoundException("Route not found.");
+            // Log the route not found exception
+            $logger = Log::getInstance();
+            $logger->error("Route not found: $uri", [
+                'method' => $method,
+            ]);
+            // Return a friendly message
+            http_response_code(404); // Not Found
+            return ['error' => 'Route not found.'];
+        }
+
+        // Get parameters
+        $params = $route->getParameters();
+        if (!isset($params['id'])) {
+            $params['id'] = null;
+        }
+
+        // Resolve middleware
+        $middlewares = $this->resolveMiddleware($route);
+        foreach ($middlewares as $middleware) {
+            if ($this->container && $this->container->has($middleware)) {
+                $middlewareInstance = $this->container->get($middleware);
+                $middlewareInstance->handle();
+            }
+        }
+
+        // Prepare the resolved route
+        $resolvedRoute = [
+            'action' => $route->getAction(),
+            'parameters' => $params
+        ];
+
+        // Cache the route
+        $this->cache->put($method . $uri, $resolvedRoute);
+        return $resolvedRoute;
+
+    } catch (\Exception $e) {
+        // Log any other exceptions
+        $logger = Log::getInstance();
+        $logger->error("Unexpected exception: " . $e->getMessage(), [
+            'method' => $method,
+            'uri' => $uri,
+            'stack_trace' => $e->getTraceAsString(),
+        ]);
+        // Return a generic error response
+        http_response_code(500); // Internal Server Error
+        return ['error' => 'An unexpected error occurred.'];
     }
-
-    // Resolve middleware and execute it
-    $middlewares = $this->resolveMiddleware($route);
-    foreach ($middlewares as $middleware) {
-      $middlewareInstance = $this->container->get($middleware);
-      $middlewareInstance->handle();
-    }
-
-    // Prepare the resolved route details
-    $resolvedRoute = [
-      'action' => $route->getAction(),
-      'parameters' => $route->getParameters()
-    ];
-
-    // Cache the resolved route
-    $this->cache->put($method . $uri, $resolvedRoute);
-
-    return $resolvedRoute;
-  }
+}
 
   /**
    * Generate a URL for a named route with optional parameters.
@@ -148,10 +188,12 @@ class Router
    * @param callable $callback A callback that registers routes within the group.
    */
   public function group(array $attributes, callable $callback): void
-  {
+{
     $registrar = new RouteRegistrar($this);
-    $registrar->group($attributes, $callback);
-  }
+    $registrar->group($attributes, function($router) use ($callback) {
+        $callback($router);
+    });
+}
 
   /**
    * Register a middleware group by name.
@@ -196,6 +238,14 @@ class Router
       }
     }
     return array_unique($middlewares);
+  }
+
+  public function routeNotFound(): void
+  {
+    http_response_code(404); // Define o código de status HTTP
+    $view = new ViewFactory(); // Instância do ViewFactory
+    $data = []; // Dados que você pode passar para a view, se necessário
+    echo $view->make('errors.404', $data); // Renderiza a view de erro 404
   }
 
   /**

@@ -61,7 +61,7 @@ class QueryBuilder
      */
     public function where(string $field, string $operator, $value): self
     {
-        $this->wheres[] = "$field $operator ?";
+        $this->wheres[] = "`$field` $operator ?";
         $this->bindings[] = $value;
         return $this;
     }
@@ -152,7 +152,9 @@ class QueryBuilder
 
             return $statement->fetchAll();
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, $this->bindings, "Erro ao executar a consulta", 'DB_QUERY_ERR', $e->getCode(), $e);
+
+            // Lança uma exceção mais informativa
+            throw new DatabaseQueryException($sql, $this->bindings, $e);
         }
     }
 
@@ -172,7 +174,7 @@ class QueryBuilder
 
             return $statement->fetchAll();
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, $bindings, "Erro na consulta bruta", 'DB_QUERY_ERR', $e->getCode(), $e);
+            throw new DatabaseQueryException($sql, $this->bindings, $e);
         }
     }
 
@@ -189,11 +191,11 @@ class QueryBuilder
             $fields = implode(", ", array_keys($data));
             $placeholders = implode(", ", array_fill(0, count($data), '?'));
             $sql = sprintf("INSERT INTO %s (%s) VALUES (%s)", $this->table, $fields, $placeholders);
-            
+
             $statement = $this->connection->prepare($sql);
             return $statement->execute(array_values($data));
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, array_values($data), "Erro ao inserir registro", 'DB_INSERT_ERR', $e->getCode(), $e);
+            throw new DatabaseQueryException($sql, array_values($data), $e);
         }
     }
 
@@ -218,7 +220,7 @@ class QueryBuilder
             $statement = $this->connection->prepare($sql);
             return $statement->execute(array_merge(array_values($data), $this->bindings));
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, array_merge(array_values($data), $this->bindings), "Erro ao atualizar registros", 'DB_UPDATE_ERR', $e->getCode(), $e);
+            throw new DatabaseQueryException($sql, array_values($data), $e);
         }
     }
 
@@ -240,7 +242,7 @@ class QueryBuilder
             $statement = $this->connection->prepare($sql);
             return $statement->execute($this->bindings);
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, $this->bindings, "Erro ao excluir registros", 'DB_DELETE_ERR', $e->getCode(), $e);
+            throw new DatabaseQueryException($sql, $this->bindings, $e);
         }
     }
 }
