@@ -1,63 +1,38 @@
 <?php
-
 namespace Vest\Console;
-
-/**
- * Classe base para comandos de console.
- */
-abstract class Command
-{
-    protected $signature;
+abstract class Command {
+    protected $name;
     protected $description;
+    protected $arguments = [];
+    protected $options = [];
 
-    /**
-     * Define a assinatura do comando.
-     *
-     * @param string $signature
-     * @return $this
-     */
-    public function setSignature(string $signature): self
-    {
-        $this->signature = $signature;
-        return $this;
+    abstract public function execute(array $args): void;
+
+    public function getName(): string {
+        return $this->name;
     }
 
-    /**
-     * Retorna a assinatura do comando.
-     *
-     * @return string
-     */
-    public function getSignature(): string
-    {
-        return $this->signature;
-    }
-
-    /**
-     * Define a descrição do comando.
-     *
-     * @param string $description
-     * @return $this
-     */
-    public function setDescription(string $description): self
-    {
-        $this->description = $description;
-        return $this;
-    }
-
-    /**
-     * Retorna a descrição do comando.
-     *
-     * @return string
-     */
-    public function getDescription(): string
-    {
+    public function getDescription(): string {
         return $this->description;
     }
 
-    /**
-     * Executa o comando.
-     *
-     * @return void
-     */
-    abstract public function execute(): void;
+    protected function parseArgs(array $args): array {
+        $parsed = ['args' => [], 'options' => []];
+        
+        foreach ($args as $arg) {
+            if (strpos($arg, '--') === 0) {
+                $option = substr($arg, 2);
+                if (strpos($option, '=') !== false) {
+                    list($key, $value) = explode('=', $option, 2);
+                    $parsed['options'][$key] = $value;
+                } else {
+                    $parsed['options'][$option] = true;
+                }
+            } else {
+                $parsed['args'][] = $arg;
+            }
+        }
+
+        return $parsed;
+    }
 }

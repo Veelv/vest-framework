@@ -1,0 +1,25 @@
+<?php
+
+namespace App\Models;
+
+class {{name}}
+{
+    protected $table = '{{tableName}}';
+    protected string $primaryKey = 'id';
+    protected string $idType = 'uuid'; // or 'id'
+    protected bool $timestamps = true;
+
+    protected array $fillable = [
+        'name',
+        'email',
+        'password',
+    ];
+
+    protected array $hidden = [
+        'password',
+    ];
+
+    protected array $casts = [
+        'id' => 'string',
+    ];
+}

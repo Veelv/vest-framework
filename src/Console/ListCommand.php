@@ -1,30 +1,33 @@
 <?php
-
 namespace Vest\Console;
+class ListCommand extends Command {
+    protected $name = 'list';
+    protected $description = 'Lista todos os comandos disponíveis';
 
-/**
- * Comando para listar todos os comandos disponíveis.
- */
-class ListCommand extends Command
-{
-    protected $commandCollection;
-
-    public function __construct(CommandCollection $commandCollection)
-    {
-        $this->commandCollection = $commandCollection;
-        $this->setSignature('list')
-             ->setDescription('Lista todos os comandos disponíveis.');
-    }
-
-    /**
-     * Executa o comando de listagem.
-     *
-     * @return void
-     */
-    public function execute(): void
-    {
-        foreach ($this->commandCollection->all() as $command) {
-            echo $command->getSignature() . ': ' . $command->getDescription() . PHP_EOL;
+    public function execute(array $args): void {
+        echo "Comandos disponíveis:\n\n";
+        
+        $collection = new CommandCollection();
+        
+        // Adiciona todos os comandos à coleção
+        $commands = [
+            new ListCommand(),
+            new MakeCommand(),
+            new MigrationCommand(),
+            new SeedCommand(),
+            new FrontendCommand()
+        ];
+        
+        foreach ($commands as $command) {
+            $collection->add($command);
+        }
+        
+        // Lista todos os comandos
+        foreach ($collection->all() as $command) {
+            printf("%-15s %s\n", 
+                $command->getName(), 
+                $command->getDescription()
+            );
         }
     }
 }

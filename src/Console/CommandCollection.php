@@ -1,50 +1,21 @@
 <?php
-
 namespace Vest\Console;
+class CommandCollection {
+    private $commands = [];
 
-use RuntimeException;
-
-/**
- * Gerencia a coleção de comandos.
- */
-class CommandCollection
-{
-    protected $commands = [];
-
-    /**
-     * Adiciona um comando à coleção.
-     *
-     * @param Command $command
-     * @return $this
-     */
-    public function add(Command $command): self
-    {
-        $this->commands[$command->getSignature()] = $command;
-        return $this;
+    public function add(Command $command): void {
+        $this->commands[$command->getName()] = $command;
     }
 
-    /**
-     * Obtém um comando pela assinatura.
-     *
-     * @param string $signature
-     * @return Command
-     * @throws RuntimeException
-     */
-    public function get(string $signature): Command
-    {
-        if (!isset($this->commands[$signature])) {
-            throw new RuntimeException("Command not found: $signature");
-        }
-        return $this->commands[$signature];
+    public function get(string $name): ?Command {
+        return $this->commands[$name] ?? null;
     }
 
-    /**
-     * Retorna todos os comandos.
-     *
-     * @return array
-     */
-    public function all(): array
-    {
+    public function all(): array {
         return $this->commands;
+    }
+    
+    public function exists(string $name): bool {
+        return isset($this->commands[$name]);
     }
 }

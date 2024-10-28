@@ -1,0 +1,49 @@
+<?php
+namespace {{namespace}}\Controllers\Api;
+use Vest\Http\RestController;
+use Vest\Http\Response;
+use Vest\Http\Request;
+
+class {{name}}Controller extends RestController
+{
+    public function __construct(Request $request, Response $response)
+    {
+        parent::__construct($request, $response);
+    }
+
+    protected function index(): Response
+    {
+        // Implementação do método index
+        return $this->respondWithData(['message' => 'Index method']);
+    }
+    protected function create(): Response
+    {
+        // Implementação do método create
+        return $this->respondWithData(['message' => 'Create method']);
+    }
+    protected function store(): Response
+    {
+        // Implementação do método store
+        return $this->respondWithData(['message' => 'Store method']);
+    }
+    protected function show($id): Response
+    {
+        // Implementação do método show
+        return $this->respondWithData(['message' => 'Show method', 'id' => $id]);
+    }
+    protected function edit($id): Response
+    {
+        // Implementação do método edit
+        return $this->respondWithData(['message' => 'Edit method', 'id' => $id]);
+    }
+    protected function update($id): Response
+    {
+        // Implementação do método update
+        return $this->respondWithData(['message' => 'Update method', 'id' => $id]);
+    }
+    protected function destroy($id): Response
+    {
+        // Implementação do método destroy
+        return $this->respondWithData(['message' => 'Destroy method', 'id' => $id]);
+    }
+}

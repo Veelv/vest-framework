@@ -1,0 +1,33 @@
+<?php
+
+use Vest\Database\Migration;
+use Vest\ORM\Schema\Blueprint;
+use Vest\ORM\Schema\Schema;
+
+class {{class}} extends Migration
+{
+    /**
+     * Execute as migrações.
+     *
+     * @return void
+     */
+    public function up(): void
+    {
+        Schema::create('{{table}}', function (Blueprint $table) {
+            $table->id();
+            // Defina suas colunas aqui
+            $table->string('name');
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverta as migrações.
+     *
+     * @return void
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('{{table}}');
+    }
+}
