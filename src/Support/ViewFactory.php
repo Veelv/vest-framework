@@ -6,7 +6,7 @@ use Exception;
 
 class ViewFactory
 {
-    protected string $baseNamespace = APP_PATH. 'app\Views'; // Definindo o namespace base para as views
+    protected string $baseNamespace = APP_PATH. 'screens/';
 
     /**
      * Renderiza uma view com dados.

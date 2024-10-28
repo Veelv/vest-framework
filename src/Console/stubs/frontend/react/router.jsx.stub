@@ -1,0 +1,17 @@
+import { createBrowserRouter } from 'react-router-dom';
+import HomePage from './pages/HomePage';
+import NotFound from './pages/NotFound';
+const prefix = import.meta.env.APP_PREFIX;
+
+const routes = createBrowserRouter([
+  {
+    path: `${prefix}/`,
+    element: <HomePage />,
+  },
+  {
+    path: '*',
+    element: <NotFound />,
+  },
+]);
+
+export default router;

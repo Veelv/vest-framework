@@ -1,0 +1,35 @@
+<template>
+  <div class="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
+    <h1 class="text-9xl font-bold mb-4">404</h1>
+    <p class="text-2xl mb-6">Oops! Página não encontrada.</p>
+    <button
+      @click="handleGoBack"
+      class="bg-blue-500 text-white px-6 py-3 rounded-md text-lg hover:bg-blue-400 transition duration-300 ease-in-out"
+    >
+      Voltar
+    </button>
+    <div class="mt-12">
+      <img
+        src="https://via.placeholder.com/400"
+        alt="Ilustração"
+        class="max-w-xs opacity-50"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { useRouter, useRoute } from 'vue-router';
+
+const router = useRouter();
+const route = useRoute();
+
+const handleGoBack = () => {
+  // Se tiver um histórico de navegação, volta para a página anterior
+  if (route.state?.from) {
+    router.push(route.state.from);
+  } else {
+    router.push('/'); // Se não, vai para a página inicial
+  }
+};
+</script>

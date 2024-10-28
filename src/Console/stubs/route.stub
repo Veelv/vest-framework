@@ -1,0 +1,12 @@
+<?php
+
+use Config\core\Application;
+
+$router = new Application();
+
+// Rotas frontend usando react
+$router->get('/test', function() {
+    echo "Router Started";
+});
+
+$router->run();

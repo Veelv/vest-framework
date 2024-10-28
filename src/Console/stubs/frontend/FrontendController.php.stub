@@ -1,0 +1,10 @@
+namespace App\Controllers;
+use Vest\Http\HttpController;
+
+class FrontendController extends HttpController
+{
+    public function index()
+    {
+        return $this->view('frontend');
+    }
+}

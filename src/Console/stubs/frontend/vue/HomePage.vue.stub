@@ -1,0 +1,25 @@
+<template>
+  <div class="flex flex-col justify-center items-center w-full h-screen bg-emetald-500 text-white">
+    <h1 class="text-6xl font-bold mb-4">Vest Framework and Vue</h1>
+    <p class="text-lg mb-6 text-center max-w-lg">
+      Um poderoso framework para construção de aplicações web modernas com
+      Vue, focado em desempenho e escalabilidade.
+    </p>
+    <button
+      class="bg-red-600 hover:bg-red-700 transition duration-300 px-6 py-3 rounded-full text-white text-lg shadow-lg"
+      @click="incrementCount"
+    >
+      Count is <span class="font-bold">{{ count }}</span>
+    </button>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue';
+
+const count = ref(0);
+
+const incrementCount = () => {
+  count.value++;
+};
+</script>

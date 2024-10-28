@@ -1,0 +1,23 @@
+import { useState } from "react";
+
+const HomePage = () => {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div className="flex flex-col justify-center items-center w-full h-screen bg-emetald-500 text-white">
+      <h1 className="text-6xl font-bold mb-4">Vest Framework and React</h1>
+      <p className="text-lg mb-6 text-center max-w-lg">
+        Um poderoso framework para construção de aplicações web modernas com
+        React, focado em desempenho e escalabilidade.
+      </p>
+      <button
+        className="bg-red-600 hover:bg-red-700 transition duration-300 px-6 py-3 rounded-full text-white text-lg shadow-lg"
+        onClick={() => setCount((count) => count + 1)}
+      >
+        Count is <span className="font-bold">{count}</span>
+      </button>
+    </div>
+  );
+};
+
+export default HomePage;
