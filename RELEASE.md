@@ -33,7 +33,7 @@
 - Added an option to choose between UUID or ID for applications, supporting more versatile identification setups
 
 ## Upgrade Instructions
-To upgrade to version 1.0.3, please follow these steps:
+To upgrade to version 1.3, please follow these steps:
 1. Backup your project to prevent data loss.
-2. Download version 1.0.3 from the repository.
+2. Download version 1.3 from the repository.
 3. Run `composer update` to install the dependencies.
