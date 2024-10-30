@@ -1,6 +1,6 @@
 <?php
 
-use Vest\Database\Migration;
+use Vest\ORM\Migration;
 use Vest\ORM\Schema\Blueprint;
 use Vest\ORM\Schema\Schema;
 

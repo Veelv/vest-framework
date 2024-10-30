@@ -1,105 +1,94 @@
 <?php 
 
-namespace Vest\Database;
+namespace Vest\ORM;
 
-use Vest\ORM\Schema;
-use Vest\ORM\Connection;
-use Vest\ORM\QueryBuilder;
-use Vest\Support\Str;
+use Vest\ORM\Schema\Schema;
+use PDO;
 
 abstract class Migration
 {
-    protected Schema $schema;
-    protected string $table;
+    protected static ?PDO $connection = null;
 
     /**
-     * Construtor da classe Migration.
+     * Define a conexão PDO para todas as migrações.
      *
-     * @param Connection $connection Instância da classe Connection.
+     * @param PDO $connection
      */
-    public function __construct(Connection $connection)
+    public static function setConnection(PDO $connection)
     {
-        // Cria uma instância de QueryBuilder a partir da conexão
-        $queryBuilder = new QueryBuilder($connection->getConnection());
-        $this->schema = new Schema($queryBuilder);
+        self::$connection = $connection;
     }
 
     /**
-     * Método que deve ser implementado para aplicar a migração.
+     * Execute as migrações.
      */
     abstract public function up(): void;
 
     /**
-     * Método que deve ser implementado para reverter a migração.
+     * Reverta as migrações.
      */
     abstract public function down(): void;
 
     /**
-     * Cria uma nova tabela.
+     * Obtém a conexão PDO.
      *
-     * @param string $table Nome da tabela a ser criada.
-     * @param callable $callback Função de callback para definir a estrutura da tabela.
+     * @return PDO
+     * @throws \RuntimeException se a conexão não estiver configurada
      */
-    protected function create(string $table, callable $callback): void
+    protected function getConnection(): PDO
     {
-        $this->table = $table;
-        $this->schema->create($table, $callback);
+        if (self::$connection === null) {
+            throw new \RuntimeException('Conexão com o banco de dados não configurada para migrações');
+        }
+        return self::$connection;
     }
 
     /**
-     * Altera uma tabela existente.
+     * Executa uma consulta SQL bruta.
      *
-     * @param string $table Nome da tabela a ser alterada.
-     * @param callable $callback Função de callback para definir as alterações na tabela.
+     * @param string $sql
+     * @return bool
      */
-    protected function table(string $table, callable $callback): void
+    protected function raw(string $sql): bool
     {
-        $this->table = $table;
-        $this->schema->alter($table, $callback);
+        return $this->getConnection()->exec($sql) !== false;
     }
 
     /**
-     * Remove uma tabela.
+     * Inicia uma transação.
+     */
+    protected function beginTransaction(): void
+    {
+        $this->getConnection()->beginTransaction();
+    }
+
+    /**
+     * Confirma uma transação.
+     */
+    protected function commit(): void
+    {
+        $this->getConnection()->commit();
+    }
+
+    /**
+     * Reverte uma transação.
+     */
+    protected function rollBack(): void
+    {
+        $this->getConnection()->rollBack();
+    }
+
+    /**
+     * Executa uma consulta SQL e retorna um PDOStatement.
      *
-     * @param string $table Nome da tabela a ser removida.
+     * @param string $sql
+     * @param array $params
+     * @return \PDOStatement
      */
-    protected function drop(string $table): void
+    protected function query(string $sql, array $params = []): \PDOStatement
     {
-        $this->schema->drop($table);
-    }
-
-    /**
-     * Adiciona as colunas created_at e updated_at à tabela atual.
-     */
-    protected function addTimestamps(): void
-    {
-        $this->schema->alter($this->table, function ($table) {
-            $table->timestamp('created_at')->nullable();
-            $table->timestamp('updated_at')->nullable();
-        });
-    }
-
-    /**
-     * Adiciona a coluna deleted_at para soft deletes à tabela atual.
-     */
-    protected function addSoftDeletes(): void
-    {
-        $this->schema->alter($this->table, function ($table) {
-            $table->timestamp('deleted_at')->nullable();
-        });
-    }
-
-    /**
-     * Adiciona colunas para morfismos à tabela atual.
-     *
-     * @param string $name Nome do morfismo.
-     */
-    protected function morphs(string $name): void
-    {
-        $this->schema->alter($this->table, function ($table) use ($name) {
-            $table->unsignedBigInteger("{$name}_id");
-            $table->string("{$name}_type");
-            $table->index(["{$name}_id", "{$name}_type"], "idx_" . Str::snake($name) . "_morphs");
-        });
+        $stmt = $this->getConnection()->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
     }
 }

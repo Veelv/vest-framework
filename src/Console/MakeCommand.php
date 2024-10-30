@@ -4,167 +4,55 @@ namespace Vest\Console;
 
 class MakeCommand extends Command
 {
-    protected $name = 'rg';
+    protected $name = 'make';
     protected $description = 'Creates a new component';
 
-    private $types = [
-        'controller',
-        'rest-controller',
-        'model',
-        'middleware',
-        'migration',
-        'seeder'
-    ];
-
-    private $stubPath;
+    private $makers = [];
 
     public function __construct()
     {
-        $this->stubPath = __DIR__ . '/stubs/';
+        $this->registerMakers();
+    }
+
+    private function registerMakers(): void
+    {
+        $this->makers = [
+            'controller' => new Makers\ControllerMaker(),
+            'model' => new Makers\ModelMaker(),
+            'middleware' => new Makers\MiddlewareMaker(),
+            'seeder' => new Makers\SeederMaker(),
+            'routes' => new Makers\RoutesMaker(),
+            'validation' => new Makers\ValidationMaker(),
+        ];
     }
 
     public function execute(array $args): void
     {
-        $parsed = $this->parseArgs($args);
-
-        if (count($parsed['args']) < 2) {
-            throw new \InvalidArgumentException(
-                "Usage: make <type> <name> [--api] [--force]\n" .
-                    "Available types: " . implode(', ', $this->types)
-            );
+        if (count($args) < 2) {
+            $this->showHelp();
+            return;
         }
 
-        list($type, $name) = $parsed['args'];
-        $force = isset($parsed['options']['force']);
-        $isApi = isset($parsed['options']['api']);
+        list($type, $name) = $args;
+        $options = array_slice($args, 2);
 
-        // If it's a controller and the --api flag is set, use the rest-controller
-        if ($type === 'controller' && $isApi) {
-            $type = 'rest-controller';
+        if (!isset($this->makers[$type])) {
+            throw new \InvalidArgumentException("Invalid type: $type");
         }
 
-        if (!in_array($type, $this->types)) {
-            throw new \InvalidArgumentException(
-                "Invalid type. Available types: " . implode(', ', $this->types)
-            );
-        }
-
-        $this->makeComponent($type, $name, $force);
-    }
-
-    private function makeComponent(string $type, string $name, bool $force): void
-    {
-        $template = $this->getStubContents($type, $name);
-        $path = $this->getPath($type, $name);
-
-        if (!$force && file_exists($path)) {
-            throw new \RuntimeException("File already exists: $path");
-        }
-
-        $dir = dirname($path);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-        }
-
-        if (file_put_contents($path, $template)) {
-            echo "Component successfully created: $path\n";
-        } else {
-            throw new \RuntimeException("Error creating component: $path");
+        try {
+            $this->makers[$type]->make($name, $options);
+            echo "Successfully created $type: $name\n";
+        } catch (\Exception $e) {
+            echo "Error: " . $e->getMessage() . "\n";
         }
     }
 
-    private function getStubContents(string $type, string $name): string
+    private function showHelp(): void
     {
-        $stubFile = $this->getStubPath($type);
-
-        if (!file_exists($stubFile)) {
-            throw new \RuntimeException("Template not found: $stubFile");
-        }
-
-        $template = file_get_contents($stubFile);
-
-        return $this->replacePlaceholders($template, $name);
-    }
-
-    private function getStubPath(string $type): string
-    {
-        $filename = match ($type) {
-            'rest-controller' => 'restController.stub',
-            default => $type . '.stub'
-        };
-
-        return $this->stubPath . $filename;
-    }
-
-    private function replacePlaceholders(string $template, string $name): string
-    {
-        $replacements = [
-            '{{name}}' => $name,
-            '{{namespace}}' => $this->getNamespace($name),
-            '{{class}}' => $this->getClassName($name),
-            '{{tableName}}' => $this->getTableName($name),
-            '{{modelName}}' => $this->getModelName($name),
-            '{{date}}' => date('Y-m-d H:i:s'),
-            '{{timestamp}}' => time(),
-        ];
-
-        return str_replace(
-            array_keys($replacements),
-            array_values($replacements),
-            $template
-        );
-    }
-
-    private function getNamespace(string $name): string
-    {
-        // Implement namespace logic if needed
-        return 'App';
-    }
-
-    private function getClassName(string $name): string
-    {
-        return ucfirst($name); // Keep the first letter uppercase
-    }
-
-    private function getModelName(string $name): string
-    {
-        return ucfirst($name); // Keep the first letter uppercase
-    }
-
-    private function getTableName(string $name): string
-    {
-        return strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $name)) . 's';
-    }
-
-    private function getPath(string $type, string $name): string
-    {
-        $basePath = dirname(__DIR__, 5);
-
-        if (!is_dir($basePath)) {
-            throw new \RuntimeException("Invalid base path: $basePath");
-        }
-
-        $paths = [
-            'controller' => '/app/Controllers/',
-            'rest-controller' => '/app/Controllers/Api/',
-            'model' => '/app/Models/',
-            'middleware' => '/app/Middleware/',
-            'migration' => '/database/migrations/' . date('Y_m_d_His') . '_',
-            'seeder' => '/database/seeders/' // Adicionando caminho para seeders
-        ];
-
-        $suffixes = [
-            'controller' => 'Controller',
-            'rest-controller' => 'Controller',
-            'middleware' => 'Middleware',
-            'migration' => 'Migration',
-            'model' => '',
-            'seeder' => 'Seeder' // Adicionando sufixo para seeders
-        ];
-
-        $suffix = $suffixes[$type] ?? '';
-        $name = ucfirst($name);
-
-        return $basePath . $paths[$type] . $name . $suffix . '.php';
+        echo "Usage: make <type> <name> [options]\n";
+        echo "Available types: " . implode(', ', array_keys($this ->makers)) . "\n";
+        echo "Options:\n";
+        echo "  --api  Create API controller/routes\n";
     }
 }

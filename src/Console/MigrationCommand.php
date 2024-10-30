@@ -1,23 +1,40 @@
 <?php
 
 namespace Vest\Console;
+
 use PDO;
+use Vest\ORM\QueryBuilder;
+use Vest\Exceptions\DatabaseQueryException;
+use Vest\Exceptions\QueryBuilderException;
+use Vest\ORM\Migration;
+use Vest\ORM\Schema\Schema;
 
 class MigrationCommand extends Command
 {
     protected $name = 'migration';
-    protected $description = 'Gerencia migrações do banco de dados';
+    protected $description = 'Manages database migrations';
     protected $stubPath;
-    private static PDO $connection;
+    private static ?PDO $connection = null;
 
-    
     public function __construct()
     {
         $this->stubPath = __DIR__ . '/stubs/';
     }
+
     public static function setConnection(PDO $connection)
     {
         self::$connection = $connection;
+        Migration::setConnection($connection);
+        $queryBuilder = new QueryBuilder($connection);
+        // Schema::setQueryBuilder($queryBuilder);
+    }
+
+    private function getQueryBuilder(): QueryBuilder
+    {
+        if (self::$connection === null) {
+            throw new \RuntimeException('Database connection not set');
+        }
+        return new QueryBuilder(self::$connection);
     }
 
     public function execute(array $args): void
@@ -29,37 +46,52 @@ class MigrationCommand extends Command
 
         $action = $args[0];
 
-        switch ($action) {
-            case 'create':
-                if (empty($args[1])) {
-                    throw new \InvalidArgumentException("Nome da migração é obrigatório");
-                }
-                $this->create($args[1]);
-                break;
+        try {
+            switch ($action) {
+                case 'create':
+                    if (empty($args[1])) {
+                        throw new \InvalidArgumentException("Migration name is required");
+                    }
+                    $this->create($args[1]);
+                    break;
 
-            case 'run':
-                $this->run();
-                break;
+                case 'run':
+                    // Only check/create the migrations table when running migrations
+                    $this->createMigrationsTable();
+                    $this->run();
+                    break;
 
-            case 'rollback':
-                $steps = isset($args[1]) ? (int)$args[1] : 1;
-                $this->rollback($steps);
-                break;
+                case 'rollback':
+                    $this->createMigrationsTable();
+                    $steps = isset($args[1]) ? (int)$args[1] : 1;
+                    $this->rollback($steps);
+                    break;
 
-            case 'reset':
-                $this->reset();
-                break;
+                case 'reset':
+                    $this->createMigrationsTable();
+                    $this->reset();
+                    break;
 
-            case 'refresh':
-                $this->refresh();
-                break;
+                case 'refresh':
+                    $this->createMigrationsTable();
+                    $this->refresh();
+                    break;
 
-            case 'status':
-                $this->status();
-                break;
+                case 'fresh':
+                    $this->createMigrationsTable();
+                    $this->fresh();
+                    break;
 
-            default:
-                throw new \InvalidArgumentException("Ação inválida: $action");
+                case 'status':
+                    $this->createMigrationsTable();
+                    $this->status();
+                    break;
+
+                default:
+                    throw new \InvalidArgumentException("Invalid action: $action");
+            }
+        } catch (\Exception $e) {
+            $this->error($e->getMessage());
         }
     }
 
@@ -70,18 +102,162 @@ class MigrationCommand extends Command
         $filename = "{$timestamp}_{$name}.php";
         $path = $this->getMigrationsPath() . "/$filename";
 
-        // Usar o stub de migração existente
-        $stubContent = $this->getStubContents('migration', $name);
+        $stubContent = file_get_contents($this->stubPath . 'migration.stub');
+        $stubContent = str_replace(
+            ['{{class}}', '{{table}}'],
+            [$className, $this->getTableName($name)],
+            $stubContent
+        );
 
         if (!is_dir($this->getMigrationsPath())) {
             mkdir($this->getMigrationsPath(), 0755, true);
         }
 
         if (file_put_contents($path, $stubContent)) {
-            $this->success("Migração criada: $filename");
+            $this->success("Migration created: $filename");
         } else {
-            throw new \RuntimeException("Erro ao criar migração");
+            throw new \RuntimeException("Error creating migration");
         }
+    }
+
+    private function createMigrationsTable(): void
+    {
+        $this->info("Checking if migrations table exists...");
+        if (!$this->tableExists('migrations')) {
+            $this->info("Table doesn't exist, creating...");
+            $sql = "CREATE TABLE IF NOT EXISTS migrations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                migration VARCHAR(255) NOT NULL,
+                batch INT NOT NULL,
+                executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )";
+
+            try {
+                $this->getQueryBuilder()->rawQuery($sql);
+                $this->success("'migrations' table created successfully!");
+            } catch (\PDOException $e) {
+                throw new DatabaseQueryException(
+                    "Error creating 'migrations' table",
+                    $sql,
+                    [],
+                    $e
+                );
+            }
+        } else {
+            $this->info("Migrations table already exists.");
+        }
+    }
+
+    private function tableExists(string $tableName): bool
+    {
+        try {
+            $stmt = self::$connection->query("SHOW TABLES LIKE '$tableName'");
+            return $stmt->rowCount() > 0;
+        } catch (\PDOException $e) {
+            return false;
+        }
+    }
+
+    private function getExecutedMigrations(): array
+    {
+        return $this->getQueryBuilder()
+            ->table('migrations')
+            ->select(['migration'])
+            ->orderBy('id', 'ASC')
+            ->get();
+    }
+
+    private function run(): void
+    {
+        $this->info("Running pending migrations...");
+        $migrations = $this->getPendingMigrations();
+
+        $this->info("Pending migrations found: " . implode(", ", $migrations));
+
+        if (empty($migrations)) {
+            $this->info("No pending migrations found.");
+            return;
+        }
+
+        $batch = $this->getNextBatchNumber();
+        $this->info("Next batch number: $batch");
+
+        foreach ($migrations as $migration) {
+            $this->info("Attempting to run migration: $migration");
+            $this->runMigration($migration, $batch);
+        }
+        $this->success("Migrations completed!");
+    }
+
+    private function rollback(int $steps = 1): void
+    {
+        $executedMigrations = $this->getExecutedMigrations();
+        $migrationsToRollback = array_slice(array_reverse($executedMigrations), 0, $steps);
+
+        if (empty($migrationsToRollback)) {
+            $this->info("No migrations to rollback.");
+            return;
+        }
+
+        foreach ($migrationsToRollback as $migration) {
+            $this->rollbackMigration($migration['migration']);
+        }
+
+        $this->success("Rollback of $steps migration(s) completed!");
+    }
+
+    private function reset(): void
+    {
+        $this->info("Reverting all migrations...");
+        $executedMigrations = array_reverse($this->getExecutedMigrations());
+
+        foreach ($executedMigrations as $migration) {
+            $this->rollbackMigration($migration['migration']);
+        }
+
+        $this->getQueryBuilder()
+            ->table('migrations')
+            ->delete();
+
+        $this->success("All migrations have been reverted!");
+    }
+
+    private function refresh(): void
+    {
+        $this->reset();
+        $this->run();
+    }
+
+    private function fresh(): void
+    {
+        $this->info("Starting fresh migration...");
+
+        // Get all existing tables through QueryBuilder
+        $queryBuilder = $this->getQueryBuilder();
+
+        // First, remove all migrations from the migrations table
+        $queryBuilder->table('migrations')->delete();
+
+        // Then run all migrations again
+        $this->run();
+
+        $this->success("Fresh migration completed successfully!");
+    }
+
+    private function status(): void
+    {
+        $this->info("\nMigrations Status:");
+        $this->info(str_repeat('-', 60));
+
+        $migrationFiles = glob($this->getMigrationsPath() . '/*.php');
+        $executedMigrations = array_column($this->getExecutedMigrations(), 'migration');
+
+        foreach ($migrationFiles as $file) {
+            $filename = basename($file);
+            $status = in_array($filename, $executedMigrations) ? 'Executed' : 'Pending';
+            $this->info(sprintf("%-50s [%s]", $filename, $status));
+        }
+        $this->info(str_repeat('-', 60));
     }
 
     private function getStubContents(string $type, string $name): string
@@ -89,7 +265,7 @@ class MigrationCommand extends Command
         $stubFile = $this->getStubPath($type);
 
         if (!file_exists($stubFile)) {
-            throw new \RuntimeException("Template não encontrado: $stubFile");
+            throw new \RuntimeException("Template not found: $stubFile");
         }
 
         $template = file_get_contents($stubFile);
@@ -113,89 +289,14 @@ class MigrationCommand extends Command
         );
     }
 
-    private function getMigrationsPath(): string
-    {
-        return dirname(__DIR__, 5) . '/database/migrations';
-    }
-
-    private function formatClassName(string $name): string
-    {
-        return str_replace(' ', '', ucwords(str_replace(['_', '-'], ' ', $name)));
-    }
-
     private function getTableName(string $name): string
     {
         return strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $name));
     }
 
-    private function run(): void
-    {
-        $this->info("Executando migrações pendentes...");
-        // Implementação da execução das migrações
-        $migrations = $this->getPendingMigrations();
-        foreach ($migrations as $migration) {
-            $this->runMigration($migration);
-        }
-        $this->success("Migrações concluídas!");
-    }
-
-    private function rollback(int $steps = 1): void
-    {
-        $executedMigrations = $this->getExecutedMigrations();
-        $migrationsToRollback = array_slice(array_reverse($executedMigrations), 0, $steps);
-
-        if (empty($migrationsToRollback)) {
-            $this->info("Nenhuma migração para reverter.");
-            return;
-        }
-
-        foreach ($migrationsToRollback as $migration) {
-            $this->rollbackMigration($migration);
-        }
-
-        $this->success("Rollback de $steps migração(ões) concluído!");
-    }
-
-    private function reset(): void
-    {
-        $this->info("Revertendo todas as migrações...");
-
-        $executedMigrations = array_reverse($this->getExecutedMigrations());
-
-        foreach ($executedMigrations as $migration) {
-            $this->rollbackMigration($migration);
-        }
-
-        // Limpa a tabela de migrações
-        $this->connection->exec("TRUNCATE TABLE migrations");
-
-        $this->success("Todas as migrações foram revertidas!");
-    }
-    private function refresh(): void
-    {
-        $this->reset();
-        $this->run();
-    }
-
-    private function status(): void
-    {
-        $this->info("\nStatus das Migrações:");
-        $this->info(str_repeat('-', 60));
-
-        $migrationFiles = glob($this->getMigrationsPath() . '/*.php');
-        $executedMigrations = $this->getExecutedMigrations();
-
-        foreach ($migrationFiles as $file) {
-            $filename = basename($file);
-            $status = in_array($filename, $executedMigrations) ? 'Executada' : 'Pendente';
-            $this->info(sprintf("%-50s [%s]", $filename, $status));
-        }
-        $this->info(str_repeat('-', 60));
-    }
-
     private function getPendingMigrations(): array
     {
-        $executedMigrations = $this->getExecutedMigrations();
+        $executedMigrations = array_column($this->getExecutedMigrations(), 'migration');
         $migrationFiles = glob($this->getMigrationsPath() . '/*.php');
         $pendingMigrations = [];
 
@@ -206,32 +307,35 @@ class MigrationCommand extends Command
             }
         }
 
-        sort($pendingMigrations); // Ordena por timestamp
+        sort($pendingMigrations);
         return $pendingMigrations;
     }
 
-    private function runMigration(string $migrationFile): void
+    private function runMigration(string $migrationFile, int $batch): void
     {
         require_once $this->getMigrationsPath() . '/' . $migrationFile;
 
         $className = $this->getMigrationClassName($migrationFile);
 
         if (!class_exists($className)) {
-            throw new \RuntimeException("Classe de migração não encontrada: $className");
+            throw new \RuntimeException("Migration class not found: $className");
         }
 
         try {
-            $migration = new $className($this->connection);
+            $migration = new $className();
             $migration->up();
 
-            // Registra a migração como executada
-            $batch = $this->getNextBatchNumber();
-            $stmt = $this->connection->prepare("INSERT INTO migrations (migration, batch) VALUES (?, ?)");
-            $stmt->execute([$migrationFile, $batch]);
+            $this->getQueryBuilder()
+                ->table('migrations')
+                ->insert([
+                    'migration' => $migrationFile,
+                    'batch' => $batch,
+                    'executed_at' => date('Y-m-d H:i:s')
+                ]);
 
-            $this->success("Migração executada: $migrationFile");
+            $this->success("Migration executed: $migrationFile");
         } catch (\Exception $e) {
-            throw new \RuntimeException("Erro ao executar migração $migrationFile: " . $e->getMessage());
+            throw new \RuntimeException("Error executing migration $migrationFile: " . $e->getMessage());
         }
     }
 
@@ -242,68 +346,67 @@ class MigrationCommand extends Command
         $className = $this->getMigrationClassName($migrationFile);
 
         if (!class_exists($className)) {
-            throw new \RuntimeException("Classe de migração não encontrada: $className");
+            throw new \RuntimeException("Migration class not found: $className");
         }
 
         try {
-            $migration = new $className($this->connection);
+            $migration = new $className();
             $migration->down();
 
-            // Remove o registro da migração
-            $stmt = $this->connection->prepare("DELETE FROM migrations WHERE migration = ?");
-            $stmt->execute([$migrationFile]);
+            $this->getQueryBuilder()
+                ->table('migrations')
+                ->where('migration', '=', $migrationFile)
+                ->delete();
 
-            $this->success("Migração revertida: $migrationFile");
+            $this->success("Migration rolled back: $migrationFile");
         } catch (\Exception $e) {
-            throw new \RuntimeException("Erro ao reverter migração $migrationFile: " . $e->getMessage());
+            throw new \RuntimeException("Error rolling back migration $migrationFile: " . $e->getMessage());
         }
-    }
-
-    private function showHelp(): void
-    {
-        $this->info("Uso: migration <ação> [nome]");
-        $this->info("Ações:");
-        $this->info("  create <nome>      Cria uma nova migração");
-        $this->info("  run               Executa as migrações pendentes");
-        $this->info("  rollback [n]      Reverte as últimas n migrações");
-        $this->info("  reset             Reverte todas as migrações");
-        $this->info("  refresh           Reverte e executa todas as migrações");
-        $this->info("  status            Mostra o status das migrações");
-    }
-
-    private function getExecutedMigrations(): array
-    {
-        try {
-            // Verifica se a tabela migrations existe
-            $this->connection->query("SELECT 1 FROM migrations LIMIT 1");
-        } catch (\PDOException $e) {
-            // Se não existir, cria a tabela
-            $this->connection->exec("CREATE TABLE IF NOT EXISTS migrations (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            migration VARCHAR(255) NOT NULL,
-            batch INT NOT NULL,
-            executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )");
-            return [];
-        }
-
-        $stmt = $this->connection->query("SELECT migration FROM migrations ORDER BY id ASC");
-        return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 
     private function getNextBatchNumber(): int
     {
-        $stmt = $this->connection->query("SELECT MAX(batch) FROM migrations");
-        $lastBatch = $stmt->fetchColumn();
-        return $lastBatch ? $lastBatch + 1 : 1;
+        $lastBatch = $this->getQueryBuilder()
+            ->table('migrations')
+            ->select(['batch'])
+            ->orderBy('id', 'DESC')
+            ->get()[0]['batch'] ?? 0;
+
+        return $lastBatch + 1;
     }
 
     private function getMigrationClassName(string $migrationFile): string
     {
         $filename = pathinfo($migrationFile, PATHINFO_FILENAME);
-        // Remove o timestamp do nome do arquivo (YYYY_MM_DD_HHMMSS_)
-        $className = preg_replace('/^\d{4}_\d{2}_\d{2}_\d{6}_/', '', $filename);
+        $parts = explode('_', $filename);
+
+        // Ignore the first 4 elements that form the timestamp
+        $className = implode('_', array_slice($parts, 4));
+
         return $this->formatClassName($className);
+    }
+
+    private function getMigrationsPath(): string
+    {
+        return dirname(__DIR__, 5) . '/database/migrations';
+    }
+
+    private function formatClassName(string $name): string
+    {
+        return str_replace(' ', '', ucwords(str_replace(['_', '-'], ' ', $name)));
+    }
+
+    private function showHelp(): void
+    {
+        $this->info("Usage: migration <action> [name]");
+        $this->info("Actions:");
+        $this->info("  create <name>      Creates a new migration");
+        $this->info("  run               Runs pending migrations");
+        $this->info("  rollback [n]      Rolls back the last n migrations");
+        $this->info("  reset             Rolls back all migrations");
+        $this->info("  refresh           Rolls back and runs all migrations");
+        $this->info("  fresh             Clears and runs all migrations");
+        $this->info("  status            Shows the status of migrations");
     }
 
     private function success(string $message): void
@@ -314,5 +417,10 @@ class MigrationCommand extends Command
     private function info(string $message): void
     {
         echo $message . PHP_EOL;
+    }
+
+    private function error(string $message): void
+    {
+        echo "Error: $message" . PHP_EOL;
     }
 }

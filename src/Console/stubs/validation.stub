@@ -1,0 +1,17 @@
+namespace {{namespace}};
+
+class {{name}}Validation
+{
+    public function validate(array $data): array
+    {
+        $errors = [];
+
+        // Adicione suas regras de validação aqui
+        // Exemplo:
+        // if (empty($data['field'])) {
+        //     $errors['field'] = 'O campo é obrigatório.';
+        // }
+
+        return $errors;
+    }
+}

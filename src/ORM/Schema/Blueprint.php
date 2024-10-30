@@ -133,9 +133,9 @@ class Blueprint
         return $this;
     }
 
-    public function string($column, $length = 255): self
+    public function string(string $column, int $length = 255): self
     {
-        return $this->addColumn('string', $column, ['length' => $length]);
+        return $this->addColumn('VARCHAR', $column, ['length' => $length]);
     }
 
     public function text($column): self
@@ -210,15 +210,14 @@ class Blueprint
     }
 
     // Métodos Internos
-    protected function addColumn($type, $name, array $parameters = []): self
+    protected function addColumn(string $type, string $name, array $parameters = []): self
     {
         $this->columns[] = [
             'name' => $name,
             'type' => $type,
             'parameters' => $parameters,
-            'modifiers' => [],
+            'modifiers' => []
         ];
-
         return $this;
     }
 
@@ -250,5 +249,190 @@ class Blueprint
     public function getForeignKeys(): array
     {
         return $this->foreign;
+    }
+
+    // Método toSql
+    public function toSql(string $driver = 'mysql'): string
+    {
+        $columnDefinitions = [];
+        $constraints = [];
+
+        foreach ($this->columns as $column) {
+            $def = $this->buildColumnDefinition($column, $driver);
+            $columnDefinitions[] = $def;
+
+            if ($driver === 'pgsql') {
+                $constraints = array_merge($constraints, $this->buildConstraints($column));
+            }
+        }
+
+        $sql = $this->buildCreateTableStatement(
+            $this->table,
+            array_merge($columnDefinitions, $constraints),
+            $driver
+        );
+
+        return $sql;
+    }
+
+    protected function buildColumnDefinition(array $column, string $driver): string
+    {
+        $def = "`{$column['name']}` {$column['type']}";
+
+        if ($column['type'] === 'VARCHAR' && isset($column['parameters']['length'])) {
+            $def .= "({$column['parameters']['length']})";
+        } elseif (isset($column['parameters']['total']) && isset($column['parameters']['places'])) {
+            $def .= "({$column['parameters']['total']},{$column['parameters']['places']})";
+        }
+
+        foreach ($column['modifiers'] as $modifier) {
+            $def .= $this->buildModifier($modifier, $driver);
+        }
+        
+        return $def;
+    }
+    protected function mapColumnType(string $type, string $driver): string
+    {
+        $typeMap = [
+            'mysql' => [
+                'string' => 'VARCHAR',
+                'text' => 'TEXT',
+                'integer' => 'INT',
+                'bigint' => 'BIGINT',
+                'boolean' => 'tinyint',
+                'date' => 'date',
+                'dateTime' => 'datetime',
+                'decimal' => 'decimal',
+                'double' => 'double',
+                'float' => 'float',
+                'json' => 'json',
+                'longText' => 'longtext',
+                'mediumText' => 'mediumtext',
+                'time' => 'time',
+                'timestamp' => 'TIMESTAMP',
+            ],
+            'pgsql' => [
+                'string' => 'VARCHAR',
+                'text' => 'text',
+                'integer' => 'integer',
+                'bigInteger' => 'bigint',
+                'boolean' => 'boolean',
+                'date' => 'date',
+                'dateTime' => 'timestamp',
+                'decimal' => 'decimal',
+                'double' => 'double precision',
+                'float' => 'real',
+                'json' => 'jsonb',
+                'longText' => 'text',
+                'mediumText' => 'text',
+                'time' => 'time',
+                'timestamp' => 'timestamp',
+            ],
+            'sqlite' => [
+                'string' => 'VARCHAR',
+                'text' => 'text',
+                'integer' => 'integer',
+                'bigInteger' => 'integer',
+                'boolean' => 'integer',
+                'date' => 'date',
+                'dateTime' => 'datetime',
+                'decimal' => 'real',
+                'double' => 'real',
+                'float' => 'real',
+                'json' => 'text',
+                'longText' => 'text',
+                'mediumText' => 'text',
+                'time' => 'time',
+                'timestamp' => 'datetime',
+            ],
+            'sqlsrv' => [
+                'string' => 'VARCHAR',
+                'text' => 'nvarchar(max)',
+                'integer' => 'int',
+                'bigInteger' => 'bigint',
+                'boolean' => 'bit',
+                'date' => 'date',
+                'dateTime' => 'datetime2',
+                'decimal' => 'decimal',
+                'double' => 'float',
+                'float' => 'real',
+                'json' => 'nvarchar(max)',
+                'longText' => 'nvarchar(max)',
+                'mediumText' => 'nvarchar(max)',
+                'time' => 'time',
+                'timestamp' => 'datetime2',
+            ],
+        ];
+
+        $mappedType = $typeMap[$driver][$type] ?? $type;
+        return $mappedType;
+    }
+
+    protected function buildModifier(array $modifier, string $driver): string
+    {
+        $result = '';
+        switch ($modifier['type']) {
+            case 'nullable':
+                $result = ' NULL';
+                break;
+            case 'default':
+                $result = " DEFAULT {$modifier['value']}";
+                break;
+            case 'unsigned':
+                $result = ' UNSIGNED';
+                break;
+            case 'unique':
+                $result = ' UNIQUE';
+                break;
+            case 'index':
+                $result = ' INDEX';
+                break;
+            case 'primary':
+                $result = ' PRIMARY KEY';
+                break;
+            case 'autoIncrement':
+                $result = ' AUTO_INCREMENT';
+                break;
+            default:
+                echo "Modificador desconhecido: {$modifier['type']}\n";
+                break;
+        }
+        return $result;
+    }
+
+    protected function buildConstraints(array $column): array
+    {
+        $constraints = [];
+
+        if (in_array('primary', array_column($column['modifiers'], 'type'))) {
+            $constraints[] = "ALTER TABLE `{$this->table}` ADD CONSTRAINT `{$this->table}_pkey` PRIMARY KEY (`{$column['name']}`)";
+        }
+
+        if (in_array('unique', array_column($column['modifiers'], 'type'))) {
+            $constraints[] = "ALTER TABLE `{$this->table}` ADD CONSTRAINT `{$this->table}_{$column['name']}_key` UNIQUE (`{$column['name']}`)";
+        }
+
+        if (in_array('index', array_column($column['modifiers'], 'type'))) {
+            $constraints[] = "ALTER TABLE `{$this->table}` ADD INDEX `{$this->table}_{$column['name']}_index` (`{$column['name']}`)";
+        }
+
+        return $constraints;
+    }
+
+    protected function buildCreateTableStatement(string $table, array $definitions, string $driver): string
+    {
+        $sql = "CREATE TABLE `{$table}` (";
+
+        $sql .= implode(', ', $definitions);
+
+        $sql .= ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+
+        if ($driver === 'pgsql') {
+            $sql .= " TABLESPACE pg_default";
+        }
+
+        $sql .= ";";
+
+        return $sql;
     }
 }

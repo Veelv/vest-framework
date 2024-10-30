@@ -3,14 +3,15 @@
 namespace Vest\ORM\Schema;
 
 use Vest\ORM\QueryBuilder;
+use Vest\ORM\Connection;
 
 class Schema
 {
-    protected static QueryBuilder $queryBuilder;
+    protected static Connection $connection;
 
-    public static function setQueryBuilder(QueryBuilder $queryBuilder): void
+    public static function setConnection(Connection $connection): void
     {
-        self::$queryBuilder = $queryBuilder;
+        self::$connection = $connection;
     }
 
     public static function create(string $table, callable $callback): void
@@ -18,62 +19,105 @@ class Schema
         $blueprint = new Blueprint($table);
         $callback($blueprint);
 
-        // Gera o SQL para criar a tabela
-        $sql = self::buildCreateTableSql($blueprint);
-        self::$queryBuilder->rawQuery($sql);
+        $driver = self::getDriverName();;
+
+        $sql = $blueprint->toSql($driver);
+
+        self::executeStatement($sql);
+
+        // Criar índices
+        foreach ($blueprint->getIndexes() as $index) {
+            $indexSql = self::createIndexSql($table, $index, $driver);
+            self::executeStatement($indexSql);
+        }
+
+        // Criar chaves estrangeiras
+        foreach ($blueprint->getForeignKeys() as $foreign) {
+            $foreignSql = self::createForeignKeySql($table, $foreign, $driver);
+            self::executeStatement($foreignSql);
+        }
     }
 
     public static function dropIfExists(string $table): void
     {
-        $sql = sprintf('DROP TABLE IF EXISTS %s', $table);
-        self::$queryBuilder->rawQuery($sql);
+        $driver = self::getDriverName();
+        $quotedTable = self::quoteIdentifier($table, $driver);
+        $sql = "DROP TABLE IF EXISTS {$quotedTable}";
+        self::executeStatement($sql);
     }
 
-    protected static function buildCreateTableSql(Blueprint $blueprint): string
+    protected static function createIndexSql(string $table, array $index, string $driver): string
     {
-        $columns = [];
-        foreach ($blueprint->getColumns() as $column) {
-            $columns[] = self::buildColumnDefinition($column);
+        $quotedTable = self::quoteIdentifier($table, $driver);
+        $indexName = $index['name'] ?? "{$table}_{$index['columns'][0]}_index";
+        $quotedIndexName = self::quoteIdentifier($indexName, $driver);
+        $columns = implode(', ', array_map(function ($column) use ($driver) {
+            return self::quoteIdentifier($column, $driver);
+        }, $index['columns']));
+
+        $type = '';
+        if (isset($index['type'])) {
+            if ($index['type'] === 'unique') {
+                $type = 'UNIQUE ';
+            }
         }
 
-        $primaryKey = $blueprint->getIndexes();
-        if ($primaryKey) {
-            $columns[] = sprintf('PRIMARY KEY (%s)', implode(', ', array_column($primaryKey, 'columns')));
+        return "CREATE {$type}INDEX {$quotedIndexName} ON {$quotedTable} ({$columns})";
+    }
+
+    protected static function createForeignKeySql(string $table, array $foreign, string $driver): string
+    {
+        $quotedTable = self::quoteIdentifier($table, $driver);
+        $quotedColumn = self::quoteIdentifier($foreign['column'], $driver);
+        $quotedForeignTable = self::quoteIdentifier($foreign['on'], $driver);
+        $quotedForeignColumn = self::quoteIdentifier($foreign['references'], $driver);
+
+        $constraintName = $foreign['name'] ?? "{$table}_{$foreign['column']}_foreign";
+        $quotedConstraintName = self::quoteIdentifier($constraintName, $driver);
+
+        $sql = "ALTER TABLE {$quotedTable} ADD CONSTRAINT {$quotedConstraintName} ";
+        $sql .= "FOREIGN KEY ({$quotedColumn}) REFERENCES {$quotedForeignTable} ({$quotedForeignColumn})";
+
+        if (isset($foreign['onDelete'])) {
+            $sql .= " ON DELETE {$foreign['onDelete']}";
         }
 
-        $sql = sprintf(
-            'CREATE TABLE %s (%s)',
-            $blueprint->getTable(),
-            implode(', ', $columns)
-        );
+        if (isset($foreign['onUpdate'])) {
+            $sql .= " ON UPDATE {$foreign['onUpdate']}";
+        }
 
         return $sql;
     }
 
-    protected static function buildColumnDefinition(array $column): string
+    protected static function executeStatement(string $sql): void
     {
-        $columnSql = sprintf('%s %s', $column['name'], $column['type']);
-
-        if (isset($column['parameters']['length'])) {
-            $columnSql .= sprintf('(%d)', $column['parameters']['length']);
+        try {
+            $connection = self::$connection->getConnection();
+            $connection->exec($sql);
+        } catch (\PDOException $e) {
+            echo "Erro ao executar SQL: " . $e->getMessage() . "\n";
+            throw $e;
         }
+    }
 
-        if (isset($column['modifiers'])) {
-            foreach ($column['modifiers'] as $modifier) {
-                if ($modifier['type'] === 'nullable') {
-                    $columnSql .= ' NULL';
-                } elseif ($modifier['type'] === 'default') {
-                    $columnSql .= sprintf(' DEFAULT %s', $modifier['value']);
-                } elseif ($modifier['type'] === 'unsigned') {
-                    $columnSql .= ' UNSIGNED';
-                } elseif ($modifier['type'] === 'autoIncrement') {
-                    $columnSql .= ' AUTO_INCREMENT';
-                } elseif ($modifier['type'] === 'unique') {
-                    $columnSql .= ' UNIQUE';
-                }
-            }
+    protected static function getDriverName(): string
+    {
+        $driver = self::$connection->getDriver()::class;
+        return $driver;
+    }
+
+    protected static function quoteIdentifier(string $identifier, string $driver): string
+    {
+        switch ($driver) {
+            case 'Vest\ORM\MysqlDriver':
+                return "`{$identifier}`";
+            case 'Vest\ORM\PgsqlDriver':
+            case 'Vest\ORM\SqliteDriver':
+                return "\"{$identifier}\"";
+            case 'Vest\ORM\SqlsrvDriver':
+                return "[{$identifier}]";
+            default:
+                return $identifier;
         }
-
-        return $columnSql;
     }
 }

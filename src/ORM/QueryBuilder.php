@@ -16,6 +16,7 @@ class QueryBuilder
     protected ?string $orderBy = null;
     protected ?int $limit = null;
     protected ?int $offset = null;
+    protected array $joins = [];
 
     /**
      * Construtor do QueryBuilder.
@@ -35,7 +36,7 @@ class QueryBuilder
      */
     public function table(string $table): self
     {
-        $this->table = $table;
+        $this->table = $this->validateIdentifier($table);
         return $this;
     }
 
@@ -63,6 +64,14 @@ class QueryBuilder
     {
         $this->wheres[] = "`$field` $operator ?";
         $this->bindings[] = $value;
+        return $this;
+    }
+
+    public function whereIn(string $field, array $values): self
+    {
+        $placeholders = implode(", ", array_fill(0, count($values), '?'));
+        $this->wheres[] = "`$field` IN ($placeholders)";
+        $this->bindings = array_merge($this->bindings, $values);
         return $this;
     }
 
@@ -117,6 +126,11 @@ class QueryBuilder
 
         $sql = sprintf("SELECT %s FROM %s", implode(", ", $this->fields), $this->table);
 
+        // Adiciona JOINs se existirem
+        if (!empty($this->joins)) {
+            $sql .= " " . implode(" ", $this->joins);
+        }
+
         if ($this->wheres) {
             $sql .= " WHERE " . implode(" AND ", $this->wheres);
         }
@@ -137,6 +151,70 @@ class QueryBuilder
     }
 
     /**
+     * Adiciona uma cláusula JOIN à consulta.
+     *
+     * @param string $table Tabela a ser unida
+     * @param string $first Campo da primeira tabela
+     * @param string $operator Operador de comparação
+     * @param string $second Campo da segunda tabela
+     * @param string $type Tipo de JOIN (INNER, LEFT, etc)
+     * @return $this
+     */
+    public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
+    {
+        $this->joins[] = sprintf(
+            "%s JOIN %s ON %s %s %s",
+            strtoupper($type),
+            $this->validateIdentifier($table),
+            $first,
+            $operator,
+            $second
+        );
+        return $this;
+    }
+
+    protected function escape($value): string
+    {
+        if (is_string($value)) {
+            return $this->connection->quote($value);
+        }
+        if ($value === null) {
+            return 'NULL';
+        }
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if (is_array($value)) {
+            return '(' . implode(',', array_map([$this, 'escape'], $value)) . ')';
+        }
+        return $value;
+    }
+
+    protected function validateIdentifier(string $identifier): string
+    {
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $identifier)) {
+            throw new QueryBuilderException("Identificador inválido: $identifier");
+        }
+        return $identifier;
+    }
+
+    protected function prepareAndExecute(string $sql, array $bindings = []): \PDOStatement
+    {
+        try {
+            $stmt = $this->connection->prepare($sql);
+            $stmt->execute($bindings);
+            return $stmt;
+        } catch (\PDOException $e) {
+            throw new DatabaseQueryException(
+                "Erro ao executar query",
+                $sql,
+                $bindings,
+                $e
+            );
+        }
+    }
+
+    /**
      * Executa a consulta e retorna os resultados.
      *
      * @return array
@@ -153,8 +231,12 @@ class QueryBuilder
             return $statement->fetchAll();
         } catch (\PDOException $e) {
 
-            // Lança uma exceção mais informativa
-            throw new DatabaseQueryException($sql, $this->bindings, $e);
+            throw new DatabaseQueryException(
+                "Erro ao executar a consulta",
+                $sql,
+                $this->bindings,
+                $e
+            );
         }
     }
 
@@ -174,7 +256,12 @@ class QueryBuilder
 
             return $statement->fetchAll();
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, $this->bindings, $e);
+            throw new DatabaseQueryException(
+                "Erro ao executar a consulta",
+                $sql,
+                $bindings,
+                $e
+            );
         }
     }
 
@@ -195,7 +282,12 @@ class QueryBuilder
             $statement = $this->connection->prepare($sql);
             return $statement->execute(array_values($data));
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, array_values($data), $e);
+            throw new DatabaseQueryException(
+                "Erro ao inserir dados",
+                $sql,
+                array_values($data),
+                $e
+            );
         }
     }
 
@@ -220,7 +312,12 @@ class QueryBuilder
             $statement = $this->connection->prepare($sql);
             return $statement->execute(array_merge(array_values($data), $this->bindings));
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, array_values($data), $e);
+            throw new DatabaseQueryException(
+                "Erro ao atualizar dados",
+                $sql,
+                array_merge(array_values($data), $this->bindings),
+                $e
+            );
         }
     }
 
@@ -242,7 +339,12 @@ class QueryBuilder
             $statement = $this->connection->prepare($sql);
             return $statement->execute($this->bindings);
         } catch (\PDOException $e) {
-            throw new DatabaseQueryException($sql, $this->bindings, $e);
+            throw new DatabaseQueryException(
+                "Erro ao excluir dados",
+                $sql,
+                $this->bindings,
+                $e
+            );
         }
     }
 }

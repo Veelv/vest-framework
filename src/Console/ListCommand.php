@@ -1,11 +1,8 @@
 <?php
 namespace Vest\Console;
 class ListCommand extends Command {
-    protected $name = 'list';
-    protected $description = 'Lista todos os comandos disponíveis';
-
     public function execute(array $args): void {
-        echo "Comandos disponíveis:\n\n";
+        echo "Available commands:\n\n";
         
         $collection = new CommandCollection();
         

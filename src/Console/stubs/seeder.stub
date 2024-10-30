@@ -1,8 +1,6 @@
 <?php
 
-namespace Database\Seeders;
-
-use Vest\Database\Seeder;
+use Vest\ORM\Schema\Seeder;
 
 class {{class}}Seeder extends Seeder
 {

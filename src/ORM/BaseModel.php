@@ -3,6 +3,8 @@
 namespace Vest\ORM;
 
 use PDO;
+use Vest\Exceptions\RelationshipException;
+use Vest\ORM\Cache\CacheManager;
 use Vest\Support\Uuid;
 
 abstract class BaseModel
@@ -40,6 +42,21 @@ abstract class BaseModel
     // Atributos do modelo
     protected array $attributes = [];
 
+    protected static CacheManager $cacheManager;
+
+    // Eventos
+    protected static array $events = [
+        'creating' => [],
+        'created' => [],
+        'updating' => [],
+        'updated' => [],
+        'deleting' => [],
+        'deleted' => [],
+    ];
+
+    // Escopos globais
+    protected static array $globalScopes = [];
+
     /**
      * Construtor que preenche os atributos iniciais do modelo.
      *
@@ -67,6 +84,42 @@ abstract class BaseModel
         self::$connection = $connection;
     }
 
+    public static function setCacheManager(CacheManager $cacheManager): void
+    {
+        self::$cacheManager = $cacheManager;
+    }
+
+    // Método para registrar eventos
+    public static function registerEvent(string $event, callable $callback): void
+    {
+        if (array_key_exists($event, self::$events)) {
+            self::$events[$event][] = $callback;
+        }
+    }
+
+    // Método para disparar eventos
+    protected static function fireEvent(string $event, $model): void
+    {
+        foreach (self::$events[$event] as $callback) {
+            call_user_func($callback, $model);
+        }
+    }
+
+    // Método para adicionar escopos globais
+    public static function addGlobalScope(callable $scope): void
+    {
+        self::$globalScopes[] = $scope;
+    }
+
+    // Método para aplicar escopos globais
+    protected static function applyGlobalScopes(QueryBuilder $query): QueryBuilder
+    {
+        foreach (self::$globalScopes as $scope) {
+            call_user_func($scope, $query);
+        }
+        return $query;
+    }
+
     /**
      * Preenche os atributos do modelo com os valores fornecidos.
      *
@@ -90,8 +143,21 @@ abstract class BaseModel
      */
     public static function all(): array
     {
+        $cacheKey = static::class . ':all';
+        $cachedModels = self::$cacheManager->getModelCache()->get($cacheKey);
+
+        if ($cachedModels) {
+            return $cachedModels;
+        }
+
         $instance = new static;
-        return (new QueryBuilder(self::$connection))->table($instance->getTable())->get();
+        $query = new QueryBuilder(self::$connection);
+        $query = self::applyGlobalScopes($query);
+        $results = (new QueryBuilder(self::$connection))->table($instance->getTable())->get();
+
+        self::$cacheManager->getModelCache()->put($cacheKey, $results);
+
+        return $results;
     }
 
     public static function fech(): array
@@ -113,6 +179,153 @@ abstract class BaseModel
         }, $results);
     }
 
+    public static function count(array $where = []): int
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        // Adiciona condições WHERE, se fornecidas
+        foreach ($where as $field => $value) {
+            $query->where($field, '=', $value);
+        }
+
+        // Passa a contagem como um array
+        $result = $query->select(['COUNT(*) as count'])->get();
+
+        return (int) $result[0]['count'];
+    }
+
+    public static function sum(string $field, array $where = []): float
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        // Adiciona condições WHERE, se fornecidas
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        // Passa a soma como um array
+        $result = $query->select(["SUM($field) as total"])->get();
+
+        return (float) $result[0]['total'] ?? 0.0; // Retorna 0.0 se não houver resultados
+    }
+
+    public static function min(string $field, array $where = []): float
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        $result = $query->select(["MIN($field) as min"])->get();
+
+        return (float) $result[0]['min'] ?? 0.0;
+    }
+
+    public static function max(string $field, array $where = []): float
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        $result = $query->select(["MAX($field) as max"])->get();
+
+        return (float) $result[0]['max'] ?? 0.0;
+    }
+
+    public static function first(array $where = []): ?array
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        return $query->select(['*'])->limit(1)->get()[0] ?? null;
+    }
+
+    public static function exists(array $where = []): bool
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        $result = $query->select(['COUNT(*) as count'])->get();
+
+        return (int) $result[0]['count'] > 0;
+    }
+
+    public static function pluck(string $field, array $where = []): array
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        $results = $query->select([$field])->get();
+
+        return array_column($results, $field);
+    }
+
+    public static function chunk(int $count, callable $callback, array $where = []): void
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        $offset = 0;
+
+        while (true) {
+            $results = $query->limit($count)->offset($offset)->get();
+            if (empty($results)) {
+                break;
+            }
+
+            $callback($results);
+            $offset += $count;
+        }
+    }
+
+    public static function avg(string $field, array $where = []): float
+    {
+        $instance = new static;
+        $query = new QueryBuilder(self::$connection);
+        $query->table($instance->getTable());
+
+        // Adiciona condições WHERE, se fornecidas
+        foreach ($where as $fieldCondition => $value) {
+            $query->where($fieldCondition, '=', $value);
+        }
+
+        // Passa a média como um array
+        $result = $query->select(["AVG($field) as average"])->get();
+
+        return (float) $result[0]['average'] ?? 0.0; // Retorna 0.0 se não houver resultados
+    }
+
     /**
      * Recupera um registro pelo ID.
      *
@@ -121,8 +334,21 @@ abstract class BaseModel
      */
     public static function find($id): ?array
     {
+        $cacheKey = static::class . ":$id";
+        $cachedModel = self::$cacheManager->getModelCache()->get($cacheKey);
+
+        if ($cachedModel) {
+            return $cachedModel;
+        }
+
         $instance = new static;
-        return (new QueryBuilder(self::$connection))->table($instance->getTable())->where($instance->getPrimaryKey(), '=', $id)->get()[0] ?? null;
+        $result = (new QueryBuilder(self::$connection))->table($instance->getTable())->where($instance->getPrimaryKey(), '=', $id)->get()[0] ?? null;
+        
+        if ($result) {
+            self::$cacheManager->getModelCache()->put($cacheKey, $result);
+        }
+
+        return $result;
     }
 
     /**
@@ -137,13 +363,19 @@ abstract class BaseModel
             if ($this->timestamps) {
                 $this->attributes['updated_at'] = date('Y-m-d H:i:s');
             }
-            return $query->table($this->getTable())->where($this->primaryKey, '=', $this->attributes[$this->primaryKey])
+            self::fireEvent('updating', $this);
+            $result = $query->table($this->getTable())->where($this->primaryKey, '=', $this->attributes[$this->primaryKey])
                 ->update($this->attributes);
+            self::fireEvent('updated', $this);
+            return $result;
         } else {
             if ($this->timestamps) {
                 $this->attributes['created_at'] = date('Y-m-d H:i:s');
             }
-            return $query->table($this->getTable())->insert($this->attributes);
+            self::fireEvent('creating', $this);
+            $result = $query->table($this->getTable())->insert($this->attributes);
+            self::fireEvent('created', $this);
+            return $result;
         }
     }
 
@@ -158,10 +390,16 @@ abstract class BaseModel
             $query = new QueryBuilder(self::$connection);
             if ($this->softDeletes) {
                 $this->attributes['deleted_at'] = date('Y-m-d H:i:s');
-                return $query->table($this->getTable())->where($this->primaryKey, '=', $this->attributes[$this->primaryKey])
+                self::fireEvent('deleting', $this);
+                $result = $query->table($this->getTable())->where($this->primaryKey, '=', $this->attributes[$this->primaryKey])
                     ->update(['deleted_at' => $this->attributes['deleted_at']]);
+                self::fireEvent('deleted', $this);
+                return $result;
             }
-            return $query->table($this->getTable())->where($this->primaryKey, '=', $this->attributes[$this->primaryKey])->delete();
+            self::fireEvent('deleting', $this);
+            $result = $query->table($this->getTable())->where($this->primaryKey, '=', $this->attributes[$this->primaryKey])->delete();
+            self::fireEvent('deleted', $this);
+            return $result;
         }
         return false;
     }
@@ -203,6 +441,156 @@ abstract class BaseModel
     public function belongsTo(string $related, string $foreignKey, string $ownerKey = 'id')
     {
         return (new $related)->where($ownerKey, '=', $this->attributes[$foreignKey])->first();
+    }
+
+    /**
+     * Define um relacionamento has-one-through.
+     *
+     * @param string $through O nome da classe do modelo intermediário.
+     * @param string $related O nome da classe do modelo relacionado.
+     * @param string $firstKey A chave do modelo atual.
+     * @param string $throughKey A chave do modelo intermediário.
+     * @param string $secondKey A chave do modelo relacionado.
+     * @return mixed O registro relacionado.
+     */
+    public function hasOneThrough(string $through, string $related, string $firstKey, string $throughKey, string $secondKey)
+    {
+        $throughModel = new $through();
+        $relatedModel = new $related();
+
+        return $this->hasOne($related, $throughModel->getTable() . '.' . $secondKey, $this->getTable() . '.' . $firstKey);
+    }
+
+    /**
+     * Define um relacionamento has-many-through.
+     *
+     * @param string $through O nome da classe do modelo intermediário.
+     * @param string $related O nome da classe do modelo relacionado.
+     * @param string $firstKey A chave do modelo atual.
+     * @param string $throughKey A chave do modelo intermediário.
+     * @param string $secondKey A chave do modelo relacionado.
+     * @return array Lista de registros relacionados.
+     */
+    public function hasManyThrough(string $through, string $related, string $firstKey, string $throughKey, string $secondKey)
+    {
+        $throughModel = new $through();
+        $relatedModel = new $related();
+
+        return $this->hasMany($related, $throughModel->getTable() . '.' . $secondKey, $this->getTable() . '.' . $firstKey);
+    }
+
+    /**
+     * Carrega relacionamentos com eager loading.
+     *
+     * @param string|array $relations O nome do(s) relacionamento(s) a serem carregados.
+     * @return $this
+     */
+    public function with($relations)
+    {
+        if (is_string($relations)) {
+            $relations = explode(',', $relations);
+        }
+
+        foreach ($relations as $relation) {
+            $this->loadRelation($relation);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Carrega um relacionamento específico com eager loading.
+     *
+     * @param string $relation O nome do relacionamento a ser carregado.
+     * @return $this
+     */
+    protected function loadRelation(string $relation)
+    {
+        $parts = explode('.', $relation);
+        $currentModel = $this;
+        $query = new QueryBuilder(self::$connection);
+
+        foreach ($parts as $part) {
+            $method = $this->getRelationMethod($part);
+            $relatedModel = $currentModel->$method($part);
+            $currentModel = $relatedModel;
+            $query->join(
+                $relatedModel->getTable(),
+                $relatedModel->getTable() . '.' . $relatedModel->getPrimaryKey(),
+                '=',
+                $currentModel->getTable() . '.' . $part
+            );
+        }
+
+        $this->attributes = array_merge(
+            $this->attributes,
+            $query->table($this->getTable())->where($this->getPrimaryKey(), '=', $this->attributes[$this->getPrimaryKey()])->get()[0]
+        );
+
+        return $this;
+    }
+
+    /**
+     * Determina o método de relacionamento a ser usado.
+     *
+     * @param string $relation O nome do relacionamento.
+     * @return string O nome do método de relacionamento.
+     */
+    protected function getRelationMethod(string $relation): string
+    {
+        $methods = [
+            'hasOne' => 'hasOne',
+            'hasMany' => 'hasMany',
+            'belongsTo' => 'belongsTo',
+            'belongsToMany' => 'belongsToMany'
+        ];
+
+        foreach ($methods as $method => $name) {
+            if (method_exists($this, $method)) {
+                $reflection = new \ReflectionMethod($this, $method);
+                if ($reflection->getNumberOfParameters() === 3) {
+                    return $method;
+                }
+            }
+        }
+
+        throw new RelationshipException("Método de relacionamento não encontrado para '$relation'");
+    }
+
+    /**
+     * Define um relacionamento polimórfico.
+     *
+     * @param string $name O nome do relacionamento.
+     * @param array $morphTypes Um array de nomes de classes relacionadas.
+     * @param string $morphId A chave que armazena o ID do modelo relacionado.
+     * @param string $morphType A chave que armazena o tipo do modelo relacionado.
+     * @return mixed O registro relacionado.
+     */
+    public function morphOne(string $name, array $morphTypes, string $morphId, string $morphType)
+    {
+        return $this->hasOne(
+            PolymorphicModel::class,
+            $morphId,
+            $this->getPrimaryKey()
+        )->where($morphType, in_array($this::class, $morphTypes) ? $this::class : null);
+    }
+
+    /**
+     * Define um relacionamento polimórfico de muitos para um.
+     *
+     * @param string $name O nome do relacionamento.
+     * @param array $morphTypes Um array de nomes de classes relacionadas.
+     * @param string $morphId A chave que armazena o ID do modelo relacionado.
+     * @param string $morphType A chave que armazena o tipo do modelo relacionado.
+     * @return array Lista de registros relacionados.
+     */
+    public function morphMany(string $name, array $morphTypes, string $morphId, string $morphType)
+    {
+        $queryBuilder = new QueryBuilder(self::$connection);
+        return $queryBuilder->table((new PolymorphicModel())->getTable())
+            ->where($morphId, '=', $this->attributes[$this->getPrimaryKey()])
+            ->whereIn($morphType, $morphTypes)
+            ->get();
     }
 
     /**
@@ -249,6 +637,24 @@ abstract class BaseModel
             }
         }
         return $value;
+    }
+
+    public function belongsToMany(string $related, string $table = null, string $foreignKey = null, string $otherKey = null): BelongsToMany
+    {
+        $relatedModel = new $related();
+
+        $table = $table ?? $this->getJoiningTableName($this->getTable(), $relatedModel->getTable());
+        $foreignKey = $foreignKey ?? strtolower((new \ReflectionClass($this))->getShortName()) . '_' . $this->getPrimaryKey();
+        $otherKey = $otherKey ?? strtolower((new \ReflectionClass($relatedModel))->getShortName()) . '_' . $relatedModel->getPrimaryKey();
+
+        return new BelongsToMany($this, $related, $table, $foreignKey, $otherKey, self::$connection);
+    }
+
+    protected function getJoiningTableName(string $table1, string $table2): string
+    {
+        $tables = [$table1, $table2];
+        sort($tables);
+        return implode('_', $tables);
     }
 
     /**

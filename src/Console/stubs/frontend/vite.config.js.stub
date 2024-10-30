@@ -2,36 +2,16 @@ import { defineConfig } from 'vite'
 import {{framework}} from '@vitejs/plugin-{{framework}}'
 import envCompatible from 'vite-plugin-env-compatible'
 {{#if useTypeScript}}import tsConfigPaths from 'vite-tsconfig-paths'{{/if}}
-
-function defineVest(entries) {
-  return {
-    name: "vest-plugin",
-    config: () => ({
-      build: {
-        outDir: "public/resources",
-        manifest: true,
-        rollupOptions: {
-          input: entries,
-        },
-      },
-      server: {
-        hmr: {
-          protocol: "ws",
-          host: "localhost",
-          port: 5175,
-        },
-        port: 5175,
-        cors: true,
-      },
-    }),
-  };
-}
+import sheetVest from 'sheet-vest';
 
 export default defineConfig({
   envPrefix: "APP_",
   plugins: [
     {{framework}}(),
-    defineVest(["resources/css/app.css", "resources/js/App.{{jsExtension}}"]),
+    sheetVest({
+      input: ['resources/css/app.css', 'resources/js/app.js'],
+      refresh: true,
+    })
     envCompatible(),
     {{#if useTypeScript}}tsConfigPaths(){{/if}}
   ],
