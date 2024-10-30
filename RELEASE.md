@@ -16,7 +16,7 @@
 
 ---
 
-## Version 1.0.3 (October 30, 2024)
+## Version 1.3 (October 30, 2024)
 
 ### New Features
 - Introduced a command system for creating validations.
